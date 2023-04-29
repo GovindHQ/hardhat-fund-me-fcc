@@ -1,0 +1,41 @@
+{
+  "language": "Solidity",
+  "sources": {
+    "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol": {
+      "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.0;\n\ninterface AggregatorV3Interface {\n  function decimals() external view returns (uint8);\n\n  function description() external view returns (string memory);\n\n  function version() external view returns (uint256);\n\n  function getRoundData(uint80 _roundId)\n    external\n    view\n    returns (\n      uint80 roundId,\n      int256 answer,\n      uint256 startedAt,\n      uint256 updatedAt,\n      uint80 answeredInRound\n    );\n\n  function latestRoundData()\n    external\n    view\n    returns (\n      uint80 roundId,\n      int256 answer,\n      uint256 startedAt,\n      uint256 updatedAt,\n      uint80 answeredInRound\n    );\n}\n"
+    },
+    "contracts/FundMe.sol": {
+      "content": "//get funds from users\n\n//SPDX-License-Identifier: MIT\n\npragma solidity ^0.8.7;\n\nimport \"./PriceConverter.sol\"; //importing the library of functions.\n\ncontract FundMe2 {\n    using PriceConverter for uint256;\n\n    uint256 public minimumUsd = 50 * 1e18;\n\n    address[] public funders; // address array to store all the addresses of the funders.\n    mapping(address => uint256) public addressToAmountFunded;\n\n    address public owner; // to store the address of the one who first deploys this contract.\n\n    AggregatorV3Interface public priceFeed;\n\n    constructor(address priceFeedAddress) {\n        // a contructor is something that is called right when you deploy the contract.\n        owner = msg.sender; // address stored.\n        priceFeed = AggregatorV3Interface(priceFeedAddress);\n    }\n\n    modifier onlyOwner() {\n        // we can put this in function declaration where we need this condition to be satisfied.\n        require(msg.sender == owner, \"Sender is not owner!\");\n        _; //underscore signal only to do the rest of the code if this modifier code is satisfied\n        //if underscore was above the require code, then the function code is done before the modifier code is run.\n    }\n\n    function fund() public payable {\n        //smart contract addresses can hold funds just like wallets.\n        require(\n            msg.value.getConversionRate(priceFeed) >= minimumUsd, //takes two parameters, first parameter is msg.value and the second one is priceFeed\n            \"did'nt send enough!\"\n        ); //since we are using the library function.\n        //msg.value is considered as the first parameter for any of these library functions.\n        //We want to set a minimum fund amount in usd\n        //require(getConversionRate(msg.value) >= minimumUsd, \"Did'nt send enough!\"); // 1e18 = 1 * 10 ** 18 = 1 eth, since 1e18 wei is 1 eth\n        // revert undos any action before and sends the remaining gas back, so if not enough ether is send, this will revert.\n        funders.push(msg.sender); // msg.sender gives address of whoever calls the fund function.\n        addressToAmountFunded[msg.sender] = msg.value;\n    }\n\n    function withdraw() public onlyOwner {\n        // modifier used.\n        //require(msg.sender == owner, \"sender is not owner!\"); //only the owner can withdraw funds - we will create a modifier for this\n        //1.set the addresstoamountfunded to zero\n        for (\n            uint256 funderIndex = 0;\n            funderIndex < funders.length;\n            funderIndex++\n        ) {\n            //starting index, ending, change per loop\n            address funder = funders[funderIndex];\n            addressToAmountFunded[funder] = 0;\n\n            //2. reset the funders array\n            funders = new address[](0); //we set a new address array with zero objects.\n            //3.actually withdraw the funds\n            //three different ways- transfer, send, call.\n\n            //transfer\n\n            // payable(msg.sender).transfer(address(this).balance);//msg.sender is type address so we type cast it to payable address type.\n            // //msg.sender is the address to which we send the balance.\n            // //if transfer fails, it would show error and revert the transaction\n            // bool sendSuccess = payable(msg.sender).send(address(this).balance);\n            // require(sendSuccess, \"send failed\");\n            // //send does not show error instead returns true or false\n            // //so we add requre statement to revert it if it fails\n\n            (bool callSuccess, ) = payable(msg.sender).call{\n                value: address(this).balance\n            }(\"\");\n            //returns two varibles, quite advanced function, will learn more later.\n            require(callSuccess, \"Call failed!\");\n        }\n    }\n\n    receive() external payable {\n        fund();\n    }\n\n    fallback() external payable {\n        fund();\n    }\n}\n"
+    },
+    "contracts/PriceConverter.sol": {
+      "content": "//SPDX-License-Identifier: MIT\n//this is actually going to be a library.\n//cant have state variables and cant send any ether.\n//all the functions in a library is going to be internal\n\npragma solidity ^0.8.7;\n\nimport \"@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol\";\n\n//use yarn add --dev @chainlink/contracts\nlibrary PriceConverter {\n    function getPrice(\n        AggregatorV3Interface priceFeed\n    ) internal view returns (uint256) {\n        // since we have to interact with a contract outside of this project\n        //we will need the ABI and the address of the chainlink contract to get the price.\n        // address 0x694AA1769357215DE4FAC081bf1f309aDC325306\n        //to get address go to ethereum data feeds.\n        //to get the abi, we use interfaces, interfaces are programs which have all the functions of the contract we need\n        //but has no code of the functions, since abi is just a list of functions in a contract, we can use that interface.\n        //https://github.com/smartcontractkit/chainlink/blob/develop/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol\n        //check this interface out that we will be using.\n        //we can either copy paste this interface here or import the npm link which we got from chainlink docs\n\n        // AggregatorV3Interface priceFeed = AggregatorV3Interface(\n        //     0x694AA1769357215DE4FAC081bf1f309aDC325306\n        // );\n        (, int256 price, , , ) = priceFeed.latestRoundData(); //since latestrounddata returns multiple values, look in code.\n        return uint256(price); //multiply to match msg.value units in wei\n    }\n\n    function getVersion() internal view returns (uint256) {\n        AggregatorV3Interface priceFeed = AggregatorV3Interface(\n            0x694AA1769357215DE4FAC081bf1f309aDC325306\n        );\n        return priceFeed.version();\n    }\n\n    function getConversionRate(\n        uint256 ethAmount,\n        AggregatorV3Interface priceFeed\n    ) internal view returns (uint256) {\n        uint256 ethPrice = getPrice(priceFeed);\n        uint256 ethAmountInUsd = (ethPrice * ethAmount) / 1e18; //always multiply first.\n        return ethAmountInUsd;\n    }\n}\n"
+    }
+  },
+  "settings": {
+    "optimizer": {
+      "enabled": false,
+      "runs": 200
+    },
+    "outputSelection": {
+      "*": {
+        "*": [
+          "abi",
+          "evm.bytecode",
+          "evm.deployedBytecode",
+          "evm.methodIdentifiers",
+          "metadata",
+          "devdoc",
+          "userdoc",
+          "storageLayout",
+          "evm.gasEstimates"
+        ],
+        "": [
+          "ast"
+        ]
+      }
+    },
+    "metadata": {
+      "useLiteralContent": true
+    }
+  }
+}
